@@ -1,0 +1,96 @@
+CHIP FloatAdd
+{
+
+    IN a[16], b[16];
+    OUT out[16];
+    
+    PARTS:
+    
+    // Određivanje većeg broja
+    CompareExp(a=a[10..14], b=b[10..14], greater=greater1, eq=eq);
+    CompareMant(a=a[0..9], b=b[0..9], greater=greater2, eq=eqmant);
+    Mux(a=false, b=greater2, sel=eq, out=greater2final);
+    Or(a=greater1, b=greater2final, out=greater);
+    
+    
+    // Zamjena varijabli ako je to potrebno
+    Mux16(a=a, b=b, sel=greater, out=newb); 
+    Mux16(a=b, b=a, sel=greater, out=newa);
+    
+    // Selektiranje eksponenata nakon zamijene
+    ExpSel(a=newa, exp=gexp);
+    ExpSel(a=newb, exp=sexp);
+    
+    // Oduzimanje biasa od eksponenata
+    SubExp(a=a[10..14], b[4]=false, b[0..3]=true, out=aexp);
+    SubExp(a=b[10..14], b[4]=false, b[0..3]=true, out=bexp);
+    Mux6(a=aexp, b=bexp, sel=greater, out=newbexp);
+    Mux6(a=bexp, b=aexp, sel=greater, out=newaexp);
+    
+    // Razlika eksponenata i normiranje razlike (mantisa je veličine 10, nakon određenog broja shiftova postaje 0 pa se ne moraju provoditi svi shiftovi)
+    Sub6(a=newaexp, b=newbexp, out=expdiff);
+    ExpDiffNorm(exp=expdiff, out=expdiffnorm);
+    
+    
+    // Selektiranje mantisa
+    MantSel(a=newb, out=mantb);
+    MantSel(a=newa, out=mantafinal);
+    
+    // Određivanje je li broj normalan ili subnormalan i shiftanje mantise
+    NormSub(exp=sexp, n=n);
+    NormSub(exp=gexp, n=gn);
+    MantShift(a=mantb, sel=expdiffnorm, n=n, out=mantbfinal);
+    DiffZero(diff=expdiff, zero=shift);
+    Mux(a=false, b=n, sel=shift, out=sn);
+    
+    
+    // Zbrajanje i oduzimanje mantisa
+    MantAdd(a=mantafinal, b=mantbfinal, na=gn, nb=sn, out=addres, carry=carry1, rn=rn);
+    SubMant(a=mantafinal, b=mantbfinal, na=gn, nb=sn, count=zerocount, out=subres, carry=carry2);
+
+    
+    // Odabir rezultata
+    SignSel(a=newa, out=signa, out=out[15]);
+    SignSel(a=newb, out=signb);
+    
+    Xor(a=signa, b=signb, out=rsel);
+    
+    Mux10(a=addres, b=subres, sel=rsel, out=mant);
+    
+    
+    // Određivanje konačnog eksponenta i mantise
+    Mux(a=carry1, b=rn, sel=check3, out=truecarry);
+    Add5(a=gexp, b[0]=truecarry, b[1..4]=false, out=expadd);
+    RightBitShiftSN(in=mant, n=rn, out=mantshiftedr);
+    Mux10(a=mant, b=mantshiftedr, sel=carry1, out=mantadd);
+    
+    
+    ExpEq(a=zerocount, b=false, eq=check);
+    Xor(a=check, b=true, out=zeroadder);
+    Or(a=sn, b=gn, out=check2);
+    Not(in=check2, out=check3);
+    
+    Mux(a=zeroadder, b=false, sel=check3, out=zac);
+    
+    Not5(in=zerocount, out=zerocountcompl);
+    Add5(a=zerocountcompl, b[0]=true, b[1..4]=false, out=expadder);
+    
+    Mux5(a=expadder, b=false, sel=check3, out=expaddercheck);
+    
+    Add5(a=gexp, b=expaddercheck, out=expsub1);
+    And(a=eq, b=eqmant, out=checkeq);
+    Mux5(a=expsub1, b=false, sel=checkeq, out=expsub);
+    LeftBitShift10(in=subres, out=mantsub1);
+    Mux10(a=subres, b=mantsub1, sel=zac, out=mantsub2);
+    Add5(a=zerocount, b[0]=zac, b[1]=zac, b[2]=zac, b[3]=zac, b[4]=zac, out=zerocountfinal);
+    
+    
+    Mux5(a=zerocountfinal, b=false, sel=check3, out=zerocountcheck);
+    
+    MantShiftLeft(in=mantsub2, sel=zerocountcheck, out=mantsub);
+    
+    
+    // Odabir između rezultata zbrajanja i oduzimanja
+    Mux5(a=expadd, b=expsub, sel=rsel, out=out[10..14]);
+    Mux10(a=mantadd, b=mantsub, sel=rsel, out=out[0..9]);
+}

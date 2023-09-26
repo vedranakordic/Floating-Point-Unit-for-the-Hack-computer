@@ -1,0 +1,52 @@
+CHIP FPU
+{
+    IN
+        x[16], y[16],   // 16 bitni ulazi
+        zx,             // postavljanje prvog ulaza na 0?
+        nx,             // negiranje prvog ulaza (promjena sign bita)?
+        zy,             // postavljanje drugog ulaza na 0?
+        ny,             // negiranje drugog ulaza (promjena sign bita)?
+        f,              // račuanje izlaza, x+y ako je f=1, x&y ako je f=0
+        no;             // negiranje izlaza
+    
+    OUT
+        out[16],        // 16 bitni izlaz
+        zr,             // 1 ako je izlaz jednak 0, inače 0
+        ng;             // 1 ako je izlaz manji od 0, inače 0 
+        
+    PARTS:
+    
+    // Postavljanje ulaza na 0
+    Mux16(a=x, b=false, sel=zx, out=zerox);
+    Mux16(a=y, b=false, sel=zy, out=zeroy);
+    
+    // Negiranje ulaza
+    NotFloat(a=zerox, out=notx);
+    NotFloat(a=zeroy, out=noty);
+    
+    // Odabir varijabli
+    Mux16(a = zerox, b = notx, sel = nx, out = finalx);
+	Mux16(a = zeroy, b = noty, sel = ny, out = finaly);
+    
+    // Zbrajanje odnosno oduzimanje i logički and
+    FloatAdd(a=finalx, b=finaly, out=addxy);
+    And16(a = finalx, b = finaly, out = andxy);
+    
+    // Odabir operacije.
+	Mux16(a = andxy, b = addxy, sel = f, out = op);
+    
+    // Negacija operacije.
+	NotFloat(a = op, out = notop);
+    
+    // Odabir originalne ili negirane operacije.
+	Mux16(a = op, b = notop, sel = no, out[0..7] = res1, out[8..14] = res2, out[15] = res3);
+    
+    // Je li rezultat jednak nuli?
+	Or8Way(in = res1, out = or1);
+	Or8Way(in[0..6] = res2, in[7] = res3, out = or2);
+	Or(a = or1, b = or2, out = or);
+	
+	Or16(a[0..7] = res1, a[8..14] = res2, a[15] = res3, b = false, out = out);
+	Not(in = or, out = zr);
+	Or(a = res3, b = false, out = ng);
+}

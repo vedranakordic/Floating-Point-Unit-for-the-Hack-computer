@@ -1,0 +1,119 @@
+CHIP CPU 
+{
+    IN  inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to re-start the current program
+                         // (reset == 1) or continue executing the current
+                         // program (reset == 0).
+
+    OUT outM[16],        // M value output
+        writeM,          // Write into M? 
+        addressM[15],    // RAM address (of M)
+        pc[15];          // ROM address (of next instruction)
+
+    PARTS:
+
+	// Odredjujemo imamo li A ili C-instrukciju.
+	Not(in = instruction[15], out = Ainstruction);
+	Not(in = Ainstruction, out = Cinstruction);
+	
+	// A registar.
+	
+	// Pitamo se imamo li C-instrukciju koja sprema vrijednost sa outputa iz ALU-a u
+	// registar A.
+	And(a = Cinstruction, b = instruction[5], out = ALUtoA);
+	
+	// Ovdje biramo hocemo li u A registar upisati novu instrukciju ili
+	// output sa ALU-a.
+	Mux16(a = instruction, b = FAout, sel = ALUtoA, out = Ain);
+	
+	// U registar A cemo ucitavati vrijednost ukoliko imamo A-instrukciju ili
+	// C-instrukciju koja ima bit d1 = 1 (destination je A-registar).
+	Or(a = Ainstruction, b = ALUtoA, out = Aload);
+	
+	ARegister(in = Ain, load = Aload, out = Aout);
+	
+	// M "registar".
+	
+	// M "registar" je vrijednost u RAM-u na adresi RAM[A].
+	Mux16(a = Aout, b = inM, sel = instruction[12], out = AMout);
+	
+	// D registar.
+	
+	// Ucitavamo vrijednost u D-registar ukoliko imamo C-instrukciju takvu 
+	// da je d2 = 1.
+	And(a = Cinstruction, b = instruction[4], out = Dload);
+	
+	DRegister(in = FAout, load = Dload, out = Dout);
+	
+	ALU(x = Dout, y = AMout, 
+	  zx = instruction[11], nx = instruction[10], 
+	  zy = instruction[9], ny = instruction[8],
+	  f = instruction[7], no = instruction[6],
+	  out = ALUout, zr = ZRoutALU, ng = NGoutALU);
+      
+	FPU(x = Dout, y = AMout, 
+	  zx = instruction[11], nx = instruction[10], 
+	  zy = instruction[9], ny = instruction[8],
+	  f = instruction[7], no = instruction[6],
+	  out = FPUout, zr = ZRoutFPU, ng = NGoutFPU);
+      
+    // Koristimo 13 bit koji je do sad bio neiskorišten kako bi odabrali između ALU i FPU izlaza
+    Mux(a=ZRoutFPU, b=ZRoutALU, sel=instruction[13], out=ZRout);
+    Mux(a=NGoutFPU, b=NGoutALU, sel=instruction[13], out=NGout);
+    Mux16(a=FPUout, b=ALUout, sel=instruction[13], out=FAout);
+	  
+	// Output prema memoriji.
+	Or16(a = false, b = Aout, out[0..14] = addressM);
+	Or16(a = false, b = FAout, out = outM);
+	And(a = Cinstruction, b = instruction[3], out = writeM);
+	
+	// Programski brojac.
+	
+	// Je li ALU output 0 i j2 = 1. Ako je, radimo skok.
+	And(a = ZRout, b = instruction[1], out = jeq); 
+	
+	// Je li ALU output manji od 0 i j1 = 1. Ako je, radimo skok.
+	And(a = NGout, b = instruction[2], out = jlt);
+	
+	// Je li ALU output veci od 0 i j3 = 1. Ako je radimo skok.
+	Or(a = NGout, b = ZRout, out = NGorZR);
+	Not(in = NGorZR, out = PSout);
+	And(a = PSout, b = instruction[0], out = jgt);
+	
+	// Ako je barem jedna od sabirnica jlt, jeq ili jgt postavljenja na 1, 
+	// tada radimo skok.
+	Or(a = jlt, b = jeq, out = jle);
+	Or(a = jle, b = jgt, out = jmp);
+	
+	// Skok radimo samo ako imamo C-instrukciju.
+	And(a = Cinstruction, b = jmp, out = PCload);
+	
+	// Ako ne radimo skok, tada dohvacamo sljedecu instrukciju.
+	Not(in = PCload, out = PCinc);
+	
+	PC(in = Aout, load = PCload, inc = PCinc, reset = reset, out[0..14] = pc);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
